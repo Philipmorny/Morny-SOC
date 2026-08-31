@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini SOC Lab - Advanced Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        :root {
+            --primary-bg: #0a0e1a;
+            --secondary-bg: #111827;
+            --card-bg: rgba(17, 24, 39, 0.95);
+            --accent-cyan: #00d4ff;
+            --accent-red: #ff0040;
+            --accent-yellow: #ffd700;
+            --accent-green: #00ff88;
+            --accent-purple: #7c3aed;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --border-color: rgba(0, 212, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--primary-bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* Animated Background */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .bg-glow {
+            position: fixed;
+            top: -50%;
+            right: -30%;
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(0, 212, 255, 0.05) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .container-fluid { position: relative; z-index: 1; }
+
+        /* Navbar */
+        .navbar {
+            background: rgba(17, 24, 39, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 20px;
+        }
+
+        .navbar-brand {
+            color: var(--accent-cyan);
+            font-weight: 700;
+            font-size: 1.3rem;
+            letter-spacing: 1px;
+        }
+
+        .navbar-brand i { margin-right: 10px; }
+
+        .nav-link {
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 8px;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        /* Status Indicator */
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse-dot 2s infinite;
+        }
+
+        .status-dot.online { background: var(--accent-green); }
+        .status-dot.warning { background: var(--accent-yellow); }
+        .status-dot.critical { background: var(--accent-red); }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        /* Cards */
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px 24px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 20px 60px rgba(0, 212, 255, 0.05);
+        }
+
+        .stat-card .icon-wrapper {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+        }
+
+        .stat-card .icon-wrapper.cyan { background: rgba(0, 212, 255, 0.1); color: var(--accent-cyan); }
+        .stat-card .icon-wrapper.red { background: rgba(255, 0, 64, 0.1); color: var(--accent-red); }
+        .stat-card .icon-wrapper.yellow { background: rgba(255, 215, 0, 0.1); color: var(--accent-yellow); }
+        .stat-card .icon-wrapper.green { background: rgba(0, 255, 136, 0.1); color: var(--accent-green); }
+        .stat-card .icon-wrapper.purple { background: rgba(124, 58, 237, 0.1); color: var(--accent-purple); }
+
+        .stat-card .number {
+            font-size: 2.2rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .stat-card .label {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-card .trend {
+            font-size: 0.8rem;
+            padding: 2px 10px;
+            border-radius: 20px;
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--accent-green);
+        }
+
+        .stat-card .trend.down {
+            background: rgba(255, 0, 64, 0.1);
+            color: var(--accent-red);
+        }
+
+        /* Chart Containers */
+        .chart-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            height: 100%;
+        }
+
+        .chart-container .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .chart-container .chart-title {
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--text-primary);
+        }
+
+        .chart-container .chart-title i {
+            margin-right: 8px;
+            color: var(--accent-cyan);
+        }
+
+        /* Alert Items */
+        .alert-item {
+            background: var(--card-bg);
+            border-left: 4px solid var(--accent-cyan);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            transition: all 0.3s ease;
+            border: 1px solid var(--border-color);
+        }
+
+        .alert-item:hover {
+            background: rgba(0, 212, 255, 0.03);
+        }
+
+        .alert-item.critical { border-left-color: var(--accent-red); }
+        .alert-item.high { border-left-color: #ff6b00; }
+        .alert-item.medium { border-left-color: var(--accent-yellow); }
+        .alert-item.low { border-left-color: var(--accent-green); }
+
+        .alert-item .severity-badge {
+            font-size: 0.7rem;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .severity-badge.critical { background: var(--accent-red); color: white; }
+        .severity-badge.high { background: #ff6b00; color: white; }
+        .severity-badge.medium { background: var(--accent-yellow); color: black; }
+        .severity-badge.low { background: var(--accent-green); color: black; }
+
+        /* Status Badges */
+        .status-badge {
+            font-size: 0.7rem;
+            padding: 2px 12px;
+            border-radius: 20px;
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--accent-green);
+        }
+
+        .status-badge.investigating {
+            background: rgba(255, 215, 0, 0.1);
+            color: var(--accent-yellow);
+        }
+
+        .status-badge.resolved {
+            background: rgba(0, 212, 255, 0.1);
+            color: var(--accent-cyan);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--primary-bg); }
+        ::-webkit-scrollbar-thumb { background: var(--secondary-bg); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+        /* Animations */
+        .fade-in {
+            animation: fadeIn 0.6s ease forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse-dot 1.5s infinite;
+            margin-right: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="bg-glow"></div>
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-check"></i>MiniSOC
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/">
+                            <i class="bi bi-speedometer2"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/alerts">
+                            <i class="bi bi-bell-fill"></i> Alerts
+                            <span class="badge bg-danger ms-1" id="alertBadge">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/devices">
+                            <i class="bi bi-laptop"></i> Devices
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/incidents">
+                            <i class="bi bi-exclamation-triangle"></i> Incidents
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/threat-intel">
+                            <i class="bi bi-shield-fill"></i> Threat Intel
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/logout">
+                            <i class="bi bi-box-arrow-right"></i>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid p-4">
+        <!-- Stats Row -->
+        <div class="row g-3 mb-4 fade-in">
+            <div class="col-xl-3 col-md-6">
+                <div class="stat-card">
+                    <div class="icon-wrapper cyan"><i class="bi bi-laptop"></i></div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div>
+                            <div class="number" id="totalDevices">0</div>
+                            <div class="label">Total Devices</div>
+                        </div>
+                        <span class="trend"><i class="bi bi-arrow-up"></i> 12%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="stat-card">
+                    <div class="icon-wrapper green"><i class="bi bi-wifi"></i></div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div>
+                            <div class="number" id="onlineDevices">0</div>
+                            <div class="label">Online Devices</div>
+                        </div>
+                        <span class="trend"><i class="bi bi-arrow-up"></i> 8%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="stat-card">
+                    <div class="icon-wrapper yellow"><i class="bi bi-exclamation-triangle"></i></div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div>
+                            <div class="number" id="totalAlerts">0</div>
+                            <div class="label">Total Alerts</div>
+                        </div>
+                        <span class="trend down"><i class="bi bi-arrow-down"></i> 5%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="stat-card">
+                    <div class="icon-wrapper red"><i class="bi bi-bell-fill"></i></div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <div>
+                            <div class="number" id="criticalAlerts">0</div>
+                            <div class="label">Critical Alerts</div>
+                        </div>
+                        <span class="trend down"><i class="bi bi-arrow-down"></i> 3%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row g-3 mb-4 fade-in">
+            <div class="col-lg-8">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <i class="bi bi-graph-up"></i>Alert Trend (Last 24 Hours)
+                        </div>
+                        <div>
+                            <span class="live-indicator"></span>
+                            <span class="text-secondary small">Live</span>
+                        </div>
+                    </div>
+                    <canvas id="alertTrendChart" height="200"></canvas>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <i class="bi bi-pie-chart"></i>Severity Distribution
+                        </div>
+                    </div>
+                    <canvas id="severityChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row -->
+        <div class="row g-3 fade-in">
+            <div class="col-lg-8">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <i class="bi bi-clock-history"></i>Recent Alerts
+                        </div>
+                        <a href="/alerts" class="text-decoration-none" style="color: var(--accent-cyan);">
+                            View All <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                    <div id="alertList">
+                        <div class="text-center text-secondary py-4">
+                            <i class="bi bi-hourglass-split"></i> Loading alerts...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <i class="bi bi-robot"></i>Threat Intelligence
+                        </div>
+                    </div>
+                    <div id="threatIntel">
+                        <div class="text-center text-secondary py-4">
+                            <i class="bi bi-shield-fill-check"></i> No threats detected
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Socket.IO Connection
+        const socket = io();
+
+        socket.on('connect', function() {
+            console.log('Connected to SOC server');
+            fetchDashboardData();
+        });
+
+        socket.on('new_alert', function(alert) {
+            fetchDashboardData();
+            updateAlertBadge();
+        });
+
+        socket.on('scan_completed', function(data) {
+            fetchDashboardData();
+        });
+
+        // Initialize Charts
+        let alertTrendChart, severityChart;
+
+        function initCharts() {
+            // Alert Trend Chart
+            const ctx1 = document.getElementById('alertTrendChart').getContext('2d');
+            alertTrendChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Alerts',
+                        data: [],
+                        borderColor: '#00d4ff',
+                        backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#00d4ff',
+                        pointBorderColor: 'transparent',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#9ca3af' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#9ca3af', maxTicksLimit: 12 }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+
+            // Severity Chart
+            const ctx2 = document.getElementById('severityChart').getContext('2d');
+            severityChart = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [0, 0, 0, 0],
+                        backgroundColor: ['#ff0040', '#ff6b00', '#ffd700', '#00ff88'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#9ca3af',
+                                padding: 16,
+                                usePointStyle: true,
+                                pointStyle: 'circle'
+                            }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        // Fetch Dashboard Data
+        function fetchDashboardData() {
+            fetch('/api/v1/stats')
+                .then(response => response.json())
+                .then(data => {
+                    // Update stats
+                    document.getElementById('totalDevices').textContent = data.overview.total_devices;
+                    document.getElementById('onlineDevices').textContent = data.overview.online_devices;
+                    document.getElementById('totalAlerts').textContent = data.overview.total_alerts;
+                    document.getElementById('criticalAlerts').textContent = data.overview.critical_alerts;
+
+                    // Update alert badge
+                    document.getElementById('alertBadge').textContent = data.overview.critical_alerts;
+
+                    // Update alert trend chart
+                    alertTrendChart.data.labels = data.trends.map(t => t.time);
+                    alertTrendChart.data.datasets[0].data = data.trends.map(t => t.count);
+                    alertTrendChart.update();
+
+                    // Update severity chart
+                    severityChart.data.datasets[0].data = [
+                        data.severity_distribution.critical || 0,
+                        data.severity_distribution.high || 0,
+                        data.severity_distribution.medium || 0,
+                        data.severity_distribution.low || 0
+                    ];
+                    severityChart.update();
+
+                    // Update recent alerts
+                    fetchRecentAlerts();
+                })
+                .catch(error => console.error('Error fetching stats:', error));
+        }
+
+        function fetchRecentAlerts() {
+            fetch('/api/v1/alerts?limit=5')
+                .then(response => response.json())
+                .then(alerts => {
+                    const alertList = document.getElementById('alertList');
+                    if (alerts.length === 0) {
+                        alertList.innerHTML = `
+                            <div class="text-center text-secondary py-4">
+                                <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
+                                <div class="mt-2">All clear! No recent alerts</div>
+                            </div>
+                        `;
+                    } else {
+                        alertList.innerHTML = alerts.map(alert => `
+                            <div class="alert-item ${alert.severity}">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="severity-badge ${alert.severity}">${alert.severity.toUpperCase()}</span>
+                                        <span>${alert.description}</span>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="status-badge ${alert.status}">${alert.status}</span>
+                                        <span class="text-secondary small">${new Date(alert.timestamp).toLocaleTimeString()}</span>
+                                    </div>
+                                </div>
+                                <div class="text-secondary small mt-1">
+                                    <i class="bi bi-arrow-right"></i> ${alert.source_ip} → ${alert.target_ip}
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                })
+                .catch(error => console.error('Error fetching alerts:', error));
+        }
+
+        function updateAlertBadge() {
+            fetch('/api/v1/alerts?limit=1')
+                .then(response => response.json())
+                .then(alerts => {
+                    const critical = alerts.filter(a => a.severity === 'critical' && a.status === 'new').length;
+                    document.getElementById('alertBadge').textContent = critical;
+                });
+        }
+
+        // Auto-refresh every 10 seconds
+        setInterval(fetchDashboardData, 10000);
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            fetchDashboardData();
+        });
+    </script>
+</body>
+</html>
